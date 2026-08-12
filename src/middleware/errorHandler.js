@@ -6,7 +6,7 @@ const errorHandler = (err, req, res, next) => {
     return res.status(400).json({ message: err.message });
   }
   if(err.name === "NotFoundError"){
-    return res.status(404).json({ message: "Not found" });
+    return res.status(404).json({ message: err.message });
   }
   if (err) {
     console.log(err);
@@ -15,4 +15,14 @@ const errorHandler = (err, req, res, next) => {
   }
 };
 
-module.exports = errorHandler;
+const notFound = (req, res, next) => {
+  const error = new Error(`Route not found: ${req.method} ${req.originalUrl}`);
+  error.name = "NotFoundError"
+  error.statusCode = 404;
+  next(error);
+};
+
+module.exports = {
+  notFound,
+  errorHandler
+};
