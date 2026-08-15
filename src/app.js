@@ -13,6 +13,7 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
+const assignmentRoutes = require('./routes/assignmentRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 
@@ -58,6 +59,7 @@ app.get("/", (req, res) => {
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/assignments', assignmentRoutes);
 app.use('/api/announcement', announcementRoutes);
 app.use('/api/notification', notificationRoutes);
 
