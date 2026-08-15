@@ -12,6 +12,7 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 // Import Routes
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes');
 
 
 const app = express();
@@ -54,7 +55,7 @@ app.get("/", (req, res) => {
 // API Routes
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
-
+app.use('/api/attendance', attendanceRoutes);
 
 //Error Handling
 app.use(notFound);
