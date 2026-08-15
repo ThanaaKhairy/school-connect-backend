@@ -14,6 +14,8 @@ const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 
 const app = express();
@@ -58,6 +60,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/assignments', assignmentRoutes);
+app.use('/api/announcement', announcementRoutes);
+app.use('/api/notification', notificationRoutes);
 
 //Error Handling
 app.use(notFound);

@@ -2,8 +2,13 @@ const attendanceService = require('../services/attendanceService');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 const {
   markAttendanceSchema,
+  bulkMarkAttendanceSchema,
+  updateAttendanceSchema,
+  idParamSchema,
+  studentParamSchema,
+  classParamSchema,
   getAttendanceQuerySchema,
-  summaryQuerySchema,
+  statsQuerySchema,
 } = require('../validators/attendanceValidator');
 
 const validate = (schema, data) => {
@@ -15,7 +20,7 @@ const validate = (schema, data) => {
   return result.data;
 };
 
-// ==================== MARK / UPDATE ATTENDANCE ====================
+// 1. Mark single attendance (Strictly Today only)
 const markAttendance = async (req, res) => {
   try {
     const validatedData = validate(markAttendanceSchema, req.body);
@@ -35,7 +40,138 @@ const markAttendance = async (req, res) => {
   }
 };
 
-// ==================== ATTENDANCE HISTORY ====================
+// 2. Bulk mark attendance (Today only)
+const bulkMarkAttendance = async (req, res) => {
+  try {
+    const validatedData = validate(bulkMarkAttendanceSchema, req.body);
+    const result = await attendanceService.bulkMarkAttendance(validatedData, req.user);
+    sendSuccess(res, result, result.message, 201);
+  } catch (error) {
+    if (error.message === 'Class not found') {
+      return sendError(res, error.message, 404);
+    }
+    if (error.message.includes('not authorized')) {
+      return sendError(res, error.message, 403);
+    }
+    sendError(res, error.message, 400);
+  }
+};
+
+// 3. Update attendance record by ID
+const updateAttendance = async (req, res) => {
+  try {
+    const validatedParams = validate(idParamSchema, req.params);
+    const validatedData = validate(updateAttendanceSchema, req.body);
+    const result = await attendanceService.updateAttendance(
+      validatedParams.id,
+      validatedData,
+      req.user
+    );
+    sendSuccess(res, result, 'Attendance updated successfully', 200);
+  } catch (error) {
+    if (error.message === 'Attendance record not found') {
+      return sendError(res, error.message, 404);
+    }
+    if (error.message.includes('not authorized')) {
+      return sendError(res, error.message, 403);
+    }
+    sendError(res, error.message, 400);
+  }
+};
+
+// 4. Delete attendance record by ID
+const deleteAttendance = async (req, res) => {
+  try {
+    const validatedParams = validate(idParamSchema, req.params);
+    const result = await attendanceService.deleteAttendance(validatedParams.id, req.user);
+    sendSuccess(res, result, result.message, 200);
+  } catch (error) {
+    if (error.message === 'Attendance record not found') {
+      return sendError(res, error.message, 404);
+    }
+    if (error.message.includes('not authorized')) {
+      return sendError(res, error.message, 403);
+    }
+    sendError(res, error.message, 400);
+  }
+};
+
+// 5. Get student attendance
+const getStudentAttendance = async (req, res) => {
+  try {
+    const validatedParams = validate(studentParamSchema, req.params);
+    const validatedQuery = validate(getAttendanceQuerySchema, req.query);
+    const result = await attendanceService.getStudentAttendance(
+      validatedParams.studentId,
+      validatedQuery,
+      req.user
+    );
+    sendSuccess(res, result, 'Student attendance retrieved successfully', 200);
+  } catch (error) {
+    if (error.message === 'Student not found') {
+      return sendError(res, error.message, 404);
+    }
+    if (error.message.includes('not authorized')) {
+      return sendError(res, error.message, 403);
+    }
+    sendError(res, error.message, 400);
+  }
+};
+
+// 6. Get class attendance
+const getClassAttendance = async (req, res) => {
+  try {
+    const validatedParams = validate(classParamSchema, req.params);
+    const validatedQuery = validate(getAttendanceQuerySchema, req.query);
+    const result = await attendanceService.getClassAttendance(
+      validatedParams.classId,
+      validatedQuery,
+      req.user
+    );
+    sendSuccess(res, result, 'Class attendance retrieved successfully', 200);
+  } catch (error) {
+    if (error.message === 'Class not found') {
+      return sendError(res, error.message, 404);
+    }
+    if (error.message.includes('not authorized')) {
+      return sendError(res, error.message, 403);
+    }
+    sendError(res, error.message, 400);
+  }
+};
+
+// 7. Get today's class attendance
+const getTodayAttendance = async (req, res) => {
+  try {
+    const validatedParams = validate(classParamSchema, req.params);
+    const result = await attendanceService.getTodayAttendance(validatedParams.classId, req.user);
+    sendSuccess(res, result, "Today's attendance retrieved successfully", 200);
+  } catch (error) {
+    if (error.message === 'Class not found') {
+      return sendError(res, error.message, 404);
+    }
+    if (error.message.includes('not authorized')) {
+      return sendError(res, error.message, 403);
+    }
+    sendError(res, error.message, 400);
+  }
+};
+
+// 8. Get attendance statistics
+const getAttendanceStats = async (req, res) => {
+  try {
+    const validatedQuery = validate(statsQuerySchema, req.query);
+    const result = await attendanceService.getAttendanceStats(validatedQuery, req.user);
+    sendSuccess(res, result, 'Attendance statistics retrieved successfully', 200);
+  } catch (error) {
+    if (error.message.includes('not authorized')) {
+      return sendError(res, error.message, 403);
+    }
+    sendError(res, error.message, 400);
+  }
+};
+
+// 9. General Attendance History
 const getAttendanceHistory = async (req, res) => {
   try {
     const validatedQuery = validate(getAttendanceQuerySchema, req.query);
@@ -52,43 +188,14 @@ const getAttendanceHistory = async (req, res) => {
   }
 };
 
-// ==================== WEEKLY SUMMARY ====================
-const getWeeklySummary = async (req, res) => {
-  try {
-    const validatedQuery = validate(summaryQuerySchema, req.query);
-    const result = await attendanceService.getWeeklySummary(validatedQuery, req.user);
-    sendSuccess(res, result, 'Weekly attendance summary retrieved successfully', 200);
-  } catch (error) {
-    if (error.message === 'Student not found') {
-      return sendError(res, error.message, 404);
-    }
-    if (error.message.includes('not authorized')) {
-      return sendError(res, error.message, 403);
-    }
-    sendError(res, error.message, 400);
-  }
-};
-
-// ==================== MONTHLY SUMMARY ====================
-const getMonthlySummary = async (req, res) => {
-  try {
-    const validatedQuery = validate(summaryQuerySchema, req.query);
-    const result = await attendanceService.getMonthlySummary(validatedQuery, req.user);
-    sendSuccess(res, result, 'Monthly attendance summary retrieved successfully', 200);
-  } catch (error) {
-    if (error.message === 'Student not found') {
-      return sendError(res, error.message, 404);
-    }
-    if (error.message.includes('not authorized')) {
-      return sendError(res, error.message, 403);
-    }
-    sendError(res, error.message, 400);
-  }
-};
-
 module.exports = {
   markAttendance,
+  bulkMarkAttendance,
+  updateAttendance,
+  deleteAttendance,
+  getStudentAttendance,
+  getClassAttendance,
+  getTodayAttendance,
+  getAttendanceStats,
   getAttendanceHistory,
-  getWeeklySummary,
-  getMonthlySummary,
 };

@@ -1,10 +1,41 @@
 const Attendance = require('../models/Attendance');
 const Student = require('../models/Student');
 const Class = require('../models/Class');
-const Notification = require('../models/Notification');
 
 /**
- * Mark or update daily attendance for a student
+ * Helper to get normalized UTC midnight date for today
+ */
+const getTodayMidnightUTC = () => {
+  const now = new Date();
+  now.setUTCHours(0, 0, 0, 0);
+  return now;
+};
+
+/**
+ * Helper to validate user authorization for viewing student data
+ */
+const validateUserAccessForStudent = async (studentId, user) => {
+  const student = await Student.findById(studentId);
+  if (!student) {
+    throw new Error('Student not found');
+  }
+
+  if (user.role === 'parent') {
+    if (student.parent?.toString() !== user.user_id) {
+      throw new Error('You are not authorized to view this student\'s attendance');
+    }
+  } else if (user.role === 'teacher') {
+    const classObj = await Class.findById(student.class);
+    if (!classObj || !classObj.teachers.some((t) => t.toString() === user.user_id)) {
+      throw new Error('You are not authorized to view this student\'s attendance');
+    }
+  }
+
+  return student;
+};
+
+/**
+ * 1. MARK SINGLE ATTENDANCE (Strictly creates new attendance for today)
  */
 const markAttendance = async (attendanceData, currentUser) => {
   // 1. Verify student exists
@@ -18,7 +49,7 @@ const markAttendance = async (attendanceData, currentUser) => {
     throw new Error('Student is not assigned to any class');
   }
 
-  // 3. Verify teacher is authorized for student's class (admin bypasses teacher check)
+  // 3. Verify teacher is authorized for student's class (admin bypasses check)
   if (currentUser.role !== 'admin') {
     const classObj = await Class.findById(student.class);
     if (!classObj) {
@@ -34,73 +65,429 @@ const markAttendance = async (attendanceData, currentUser) => {
     }
   }
 
-  // 4. Normalize date to midnight UTC to prevent multiple records per day
-  const recordDate = new Date(attendanceData.date);
+  // 4. Normalize date to midnight UTC (Today only)
+  const recordDate = attendanceData.date ? new Date(attendanceData.date) : new Date();
   recordDate.setUTCHours(0, 0, 0, 0);
 
-  // 5. Save or update attendance atomically (upsert)
-  const attendance = await Attendance.findOneAndUpdate(
-    { student: attendanceData.student, date: recordDate },
-    {
-      student: attendanceData.student,
-      date: recordDate,
-      status: attendanceData.status,
-      markedBy: currentUser.user_id,
-    },
-    { new: true, upsert: true, runValidators: true }
-  )
-    .populate('student', 'name studentCode class parent')
-    .populate('markedBy', 'name email');
+  // 5. Ensure record does not already exist (Separation of Mark and Update)
+  const existingRecord = await Attendance.findOne({
+    student: attendanceData.student,
+    date: recordDate,
+  });
 
-  // 6. Trigger absence notification if status is absent
-  if (attendanceData.status === 'absent' && student.parent) {
-    try {
-      const dateString = recordDate.toISOString().split('T')[0];
-      await Notification.create({
-        user: student.parent,
-        title: 'Attendance Alert',
-        message: `Your child ${student.name} was marked absent on ${dateString}.`,
-        type: 'attendance',
-      });
-    } catch (notifError) {
-      console.error('Failed to create absence notification:', notifError.message);
-    }
+  if (existingRecord) {
+    throw new Error('Attendance has already been marked for this student today. Please use update endpoint to modify.');
   }
+
+  // 6. Create attendance record
+  let attendance = await Attendance.create({
+    student: attendanceData.student,
+    date: recordDate,
+    status: attendanceData.status,
+    markedBy: currentUser.user_id,
+  });
+
+  attendance = await attendance.populate([
+    { path: 'student', select: 'name studentCode class' },
+    { path: 'markedBy', select: 'name email' },
+  ]);
 
   return { attendance };
 };
 
 /**
- * Helper to validate user authorization for viewing student data
+ * 2. BULK MARK ATTENDANCE (For an entire class, Today only)
  */
-const validateUserAccessForStudent = async (studentId, user) => {
-  const student = await Student.findById(studentId);
-  if (!student) {
-    throw new Error('Student not found');
+const bulkMarkAttendance = async (bulkData, currentUser) => {
+  const { class: classId, records, date } = bulkData;
+
+  // 1. Verify class exists
+  const classObj = await Class.findById(classId);
+  if (!classObj) {
+    throw new Error('Class not found');
   }
 
-  if (user.role === 'parent') {
-    if (student.parent.toString() !== user.user_id) {
-      throw new Error('You are not authorized to view this student\'s attendance');
-    }
-  } else if (user.role === 'teacher') {
-    const classObj = await Class.findById(student.class);
-    if (!classObj || !classObj.teachers.some((t) => t.toString() === user.user_id)) {
-      throw new Error('You are not authorized to view this student\'s attendance');
+  // 2. Verify authorization
+  if (currentUser.role !== 'admin') {
+    const isTeacherInClass = classObj.teachers.some(
+      (teacherId) => teacherId.toString() === currentUser.user_id
+    );
+    if (!isTeacherInClass) {
+      throw new Error('You are not authorized to mark attendance for this class');
     }
   }
 
-  return student;
+  // 3. Normalize date to midnight UTC
+  const recordDate = date ? new Date(date) : new Date();
+  recordDate.setUTCHours(0, 0, 0, 0);
+
+  // 4. Validate all students belong to the class
+  const classStudents = await Student.find({ class: classId });
+  const classStudentMap = new Map(classStudents.map((s) => [s._id.toString(), s]));
+
+  const savedRecords = [];
+
+  for (const item of records) {
+    const studentObj = classStudentMap.get(item.student);
+    if (!studentObj) {
+      throw new Error(`Student ${item.student} does not belong to this class`);
+    }
+
+    const attendance = await Attendance.findOneAndUpdate(
+      { student: item.student, date: recordDate },
+      {
+        student: item.student,
+        date: recordDate,
+        status: item.status,
+        markedBy: currentUser.user_id,
+      },
+      { new: true, upsert: true, runValidators: true }
+    );
+
+    savedRecords.push(attendance);
+  }
+
+  return {
+    message: 'Bulk attendance recorded successfully',
+    totalProcessed: savedRecords.length,
+    class: { id: classObj._id, name: classObj.name },
+    date: recordDate.toISOString().split('T')[0],
+    records: savedRecords,
+  };
 };
 
 /**
- * Retrieve attendance history / absence records
+ * 3. UPDATE ATTENDANCE (By Record ID)
+ */
+const updateAttendance = async (id, updateData, currentUser) => {
+  const attendance = await Attendance.findById(id).populate('student');
+  if (!attendance) {
+    throw new Error('Attendance record not found');
+  }
+
+  // Authorization check
+  if (currentUser.role !== 'admin') {
+    const classObj = await Class.findById(attendance.student.class);
+    if (!classObj || !classObj.teachers.some((t) => t.toString() === currentUser.user_id)) {
+      throw new Error('You are not authorized to update attendance for this student');
+    }
+  }
+
+  attendance.status = updateData.status;
+  attendance.markedBy = currentUser.user_id;
+  await attendance.save();
+
+  await attendance.populate([
+    { path: 'student', select: 'name studentCode class' },
+    { path: 'markedBy', select: 'name email' },
+  ]);
+
+  return { attendance };
+};
+
+/**
+ * 4. DELETE ATTENDANCE (By Record ID)
+ */
+const deleteAttendance = async (id, currentUser) => {
+  const attendance = await Attendance.findById(id).populate('student');
+  if (!attendance) {
+    throw new Error('Attendance record not found');
+  }
+
+  if (currentUser.role !== 'admin') {
+    const classObj = await Class.findById(attendance.student.class);
+    if (!classObj || !classObj.teachers.some((t) => t.toString() === currentUser.user_id)) {
+      throw new Error('You are not authorized to delete attendance for this student');
+    }
+  }
+
+  await Attendance.findByIdAndDelete(id);
+
+  return { message: 'Attendance record deleted successfully' };
+};
+
+/**
+ * 5. GET STUDENT ATTENDANCE (/attendance/student/:studentId)
+ */
+const getStudentAttendance = async (studentId, queryParams, currentUser) => {
+  await validateUserAccessForStudent(studentId, currentUser);
+
+  const student = await Student.findById(studentId).populate('class', 'name');
+  const { startDate, endDate, status, page = 1, limit = 10 } = queryParams;
+
+  const filter = { student: studentId };
+
+  if (startDate || endDate) {
+    filter.date = {};
+    if (startDate) {
+      const s = new Date(startDate);
+      s.setUTCHours(0, 0, 0, 0);
+      filter.date.$gte = s;
+    }
+    if (endDate) {
+      const e = new Date(endDate);
+      e.setUTCHours(23, 59, 59, 999);
+      filter.date.$lte = e;
+    }
+  }
+
+  if (status) {
+    filter.status = status;
+  }
+
+  const skip = (page - 1) * limit;
+  const attendance = await Attendance.find(filter)
+    .populate('markedBy', 'name email')
+    .sort({ date: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  const total = await Attendance.countDocuments(filter);
+
+  return {
+    student: {
+      id: student._id,
+      name: student.name,
+      studentCode: student.studentCode,
+      class: student.class,
+    },
+    attendance,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+};
+
+/**
+ * 6. GET CLASS ATTENDANCE (/attendance/class/:classId)
+ */
+const getClassAttendance = async (classId, queryParams, currentUser) => {
+  const classObj = await Class.findById(classId);
+  if (!classObj) {
+    throw new Error('Class not found');
+  }
+
+  if (currentUser.role === 'teacher') {
+    const isTeacher = classObj.teachers.some((t) => t.toString() === currentUser.user_id);
+    if (!isTeacher) {
+      throw new Error('You are not authorized to view attendance for this class');
+    }
+  } else if (currentUser.role !== 'admin') {
+    throw new Error('You are not authorized to view class attendance');
+  }
+
+  const classStudents = await Student.find({ class: classId });
+  const studentIds = classStudents.map((s) => s._id);
+
+  const { date, startDate, endDate, status, page = 1, limit = 20 } = queryParams;
+  const filter = { student: { $in: studentIds } };
+
+  if (date) {
+    const dStart = new Date(date);
+    dStart.setUTCHours(0, 0, 0, 0);
+    const dEnd = new Date(date);
+    dEnd.setUTCHours(23, 59, 59, 999);
+    filter.date = { $gte: dStart, $lte: dEnd };
+  } else if (startDate || endDate) {
+    filter.date = {};
+    if (startDate) {
+      const s = new Date(startDate);
+      s.setUTCHours(0, 0, 0, 0);
+      filter.date.$gte = s;
+    }
+    if (endDate) {
+      const e = new Date(endDate);
+      e.setUTCHours(23, 59, 59, 999);
+      filter.date.$lte = e;
+    }
+  }
+
+  if (status) {
+    filter.status = status;
+  }
+
+  const skip = (page - 1) * limit;
+  const attendance = await Attendance.find(filter)
+    .populate('student', 'name studentCode')
+    .populate('markedBy', 'name email')
+    .sort({ date: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  const total = await Attendance.countDocuments(filter);
+
+  return {
+    class: { id: classObj._id, name: classObj.name },
+    attendance,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+};
+
+/**
+ * 7. GET TODAY'S ATTENDANCE FOR A CLASS (/attendance/today/:classId)
+ */
+const getTodayAttendance = async (classId, currentUser) => {
+  const classObj = await Class.findById(classId);
+  if (!classObj) {
+    throw new Error('Class not found');
+  }
+
+  if (currentUser.role === 'teacher') {
+    const isTeacher = classObj.teachers.some((t) => t.toString() === currentUser.user_id);
+    if (!isTeacher) {
+      throw new Error('You are not authorized to view attendance for this class');
+    }
+  } else if (currentUser.role !== 'admin') {
+    throw new Error('You are not authorized to view class attendance');
+  }
+
+  const todayStart = getTodayMidnightUTC();
+  const todayEnd = new Date(todayStart);
+  todayEnd.setUTCHours(23, 59, 59, 999);
+
+  const students = await Student.find({ class: classId }).select('name studentCode');
+  const attendanceRecords = await Attendance.find({
+    student: { $in: students.map((s) => s._id) },
+    date: { $gte: todayStart, $lte: todayEnd },
+  }).populate('markedBy', 'name email');
+
+  const attendanceMap = new Map(attendanceRecords.map((r) => [r.student.toString(), r]));
+
+  const summary = {
+    totalStudents: students.length,
+    present: 0,
+    absent: 0,
+    late: 0,
+    unmarked: 0,
+  };
+
+  const studentList = students.map((student) => {
+    const record = attendanceMap.get(student._id.toString());
+    const status = record ? record.status : 'unmarked';
+
+    summary[status] = (summary[status] || 0) + 1;
+
+    return {
+      student: {
+        id: student._id,
+        name: student.name,
+        studentCode: student.studentCode,
+      },
+      attendanceId: record ? record._id : null,
+      status,
+      markedBy: record?.markedBy || null,
+      updatedAt: record?.updatedAt || null,
+    };
+  });
+
+  return {
+    class: { id: classObj._id, name: classObj.name },
+    date: todayStart.toISOString().split('T')[0],
+    summary,
+    students: studentList,
+  };
+};
+
+/**
+ * 8. GET ATTENDANCE STATISTICS (/attendance/stats)
+ */
+const getAttendanceStats = async (queryParams, currentUser) => {
+  const { class: classId, student: studentId, startDate, endDate } = queryParams;
+  const filter = {};
+
+  if (currentUser.role === 'parent') {
+    const parentStudents = await Student.find({ parent: currentUser.user_id });
+    const studentIds = parentStudents.map((s) => s._id);
+    if (studentId) {
+      if (!studentIds.some((s) => s.toString() === studentId)) {
+        throw new Error('You are not authorized to view this student\'s stats');
+      }
+      filter.student = studentId;
+    } else {
+      filter.student = { $in: studentIds };
+    }
+  } else if (currentUser.role === 'teacher') {
+    const teacherClasses = await Class.find({ teachers: { $in: [currentUser.user_id] } });
+    const classIds = teacherClasses.map((c) => c._id);
+    if (classId) {
+      if (!classIds.some((c) => c.toString() === classId)) {
+        throw new Error('You are not authorized to view stats for this class');
+      }
+      const students = await Student.find({ class: classId });
+      filter.student = { $in: students.map((s) => s._id) };
+    } else if (studentId) {
+      const student = await Student.findById(studentId);
+      if (!student || !classIds.some((c) => c.toString() === student.class?.toString())) {
+        throw new Error('You are not authorized to view this student\'s stats');
+      }
+      filter.student = studentId;
+    } else {
+      const students = await Student.find({ class: { $in: classIds } });
+      filter.student = { $in: students.map((s) => s._id) };
+    }
+  } else if (currentUser.role === 'admin') {
+    if (classId) {
+      const students = await Student.find({ class: classId });
+      filter.student = { $in: students.map((s) => s._id) };
+    } else if (studentId) {
+      filter.student = studentId;
+    }
+  }
+
+  if (startDate || endDate) {
+    filter.date = {};
+    if (startDate) {
+      const s = new Date(startDate);
+      s.setUTCHours(0, 0, 0, 0);
+      filter.date.$gte = s;
+    }
+    if (endDate) {
+      const e = new Date(endDate);
+      e.setUTCHours(23, 59, 59, 999);
+      filter.date.$lte = e;
+    }
+  }
+
+  const records = await Attendance.find(filter);
+  const total = records.length;
+  let present = 0;
+  let absent = 0;
+  let late = 0;
+
+  records.forEach((rec) => {
+    if (rec.status === 'present') present += 1;
+    else if (rec.status === 'absent') absent += 1;
+    else if (rec.status === 'late') late += 1;
+  });
+
+  const attendanceRate = total > 0 ? Number(((present / total) * 100).toFixed(2)) : 0;
+
+  return {
+    totalRecords: total,
+    summary: {
+      present,
+      absent,
+      late,
+      attendanceRate: `${attendanceRate}%`,
+    },
+  };
+};
+
+/**
+ * 9. RETRIEVE ATTENDANCE HISTORY / ABSENCE RECORDS
  */
 const getAttendanceHistory = async (queryParams, user) => {
   const { student, class: classId, date, startDate, endDate, status, page = 1, limit = 10 } = queryParams;
   const filter = {};
 
-  // Role-based scoping
   if (user.role === 'parent') {
     const parentStudents = await Student.find({ parent: user.user_id });
     const studentIds = parentStudents.map((s) => s._id.toString());
@@ -143,7 +530,6 @@ const getAttendanceHistory = async (queryParams, user) => {
     }
   }
 
-  // Date filters
   if (date) {
     const dStart = new Date(date);
     dStart.setUTCHours(0, 0, 0, 0);
@@ -164,7 +550,6 @@ const getAttendanceHistory = async (queryParams, user) => {
     }
   }
 
-  // Status filter
   if (status) {
     filter.status = status;
   }
@@ -191,156 +576,14 @@ const getAttendanceHistory = async (queryParams, user) => {
   };
 };
 
-/**
- * Calculate weekly attendance summary
- */
-const getWeeklySummary = async (queryParams, user) => {
-  const { student: studentId, date, year, week } = queryParams;
-
-  let targetStudentIds = [];
-
-  if (studentId) {
-    await validateUserAccessForStudent(studentId, user);
-    targetStudentIds = [studentId];
-  } else if (user.role === 'parent') {
-    const parentStudents = await Student.find({ parent: user.user_id });
-    targetStudentIds = parentStudents.map((s) => s._id);
-  } else if (user.role === 'teacher') {
-    const teacherClasses = await Class.find({ teachers: { $in: [user.user_id] } });
-    const teacherStudents = await Student.find({ class: { $in: teacherClasses.map((c) => c._id) } });
-    targetStudentIds = teacherStudents.map((s) => s._id);
-  }
-
-  // Calculate week date range
-  let startOfWeek, endOfWeek;
-
-  if (year && week) {
-    // ISO week calculation
-    const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
-    const dow = simple.getUTCDay();
-    const ISOweekStart = simple;
-    if (dow <= 4) ISOweekStart.setUTCDate(simple.getUTCDate() - simple.getUTCDay() + 1);
-    else ISOweekStart.setUTCDate(simple.getUTCDate() + 8 - simple.getUTCDay());
-
-    startOfWeek = new Date(ISOweekStart);
-    startOfWeek.setUTCHours(0, 0, 0, 0);
-
-    endOfWeek = new Date(startOfWeek);
-    endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 6);
-    endOfWeek.setUTCHours(23, 59, 59, 999);
-  } else {
-    const anchorDate = date ? new Date(date) : new Date();
-    const day = anchorDate.getUTCDay();
-    const diffToMon = anchorDate.getUTCDate() - day + (day === 0 ? -6 : 1);
-
-    startOfWeek = new Date(anchorDate);
-    startOfWeek.setUTCDate(diffToMon);
-    startOfWeek.setUTCHours(0, 0, 0, 0);
-
-    endOfWeek = new Date(startOfWeek);
-    endOfWeek.setUTCDate(startOfWeek.getUTCDate() + 6);
-    endOfWeek.setUTCHours(23, 59, 59, 999);
-  }
-
-  const filter = {
-    date: { $gte: startOfWeek, $lte: endOfWeek },
-  };
-
-  if (targetStudentIds.length > 0) {
-    filter.student = targetStudentIds.length === 1 ? targetStudentIds[0] : { $in: targetStudentIds };
-  }
-
-  const records = await Attendance.find(filter);
-
-  const summary = {
-    present: 0,
-    absent: 0,
-    late: 0,
-  };
-
-  records.forEach((rec) => {
-    if (summary[rec.status] !== undefined) {
-      summary[rec.status] += 1;
-    }
-  });
-
-  return {
-    summary,
-    dateRange: {
-      startDate: startOfWeek.toISOString().split('T')[0],
-      endDate: endOfWeek.toISOString().split('T')[0],
-    },
-  };
-};
-
-/**
- * Calculate monthly attendance summary
- */
-const getMonthlySummary = async (queryParams, user) => {
-  const { student: studentId, date, year, month } = queryParams;
-
-  let targetStudentIds = [];
-
-  if (studentId) {
-    await validateUserAccessForStudent(studentId, user);
-    targetStudentIds = [studentId];
-  } else if (user.role === 'parent') {
-    const parentStudents = await Student.find({ parent: user.user_id });
-    targetStudentIds = parentStudents.map((s) => s._id);
-  } else if (user.role === 'teacher') {
-    const teacherClasses = await Class.find({ teachers: { $in: [user.user_id] } });
-    const teacherStudents = await Student.find({ class: { $in: teacherClasses.map((c) => c._id) } });
-    targetStudentIds = teacherStudents.map((s) => s._id);
-  }
-
-  let startOfMonth, endOfMonth;
-
-  if (year && month) {
-    startOfMonth = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-    endOfMonth = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
-  } else {
-    const anchorDate = date ? new Date(date) : new Date();
-    const y = anchorDate.getUTCFullYear();
-    const m = anchorDate.getUTCMonth();
-
-    startOfMonth = new Date(Date.UTC(y, m, 1, 0, 0, 0));
-    endOfMonth = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999));
-  }
-
-  const filter = {
-    date: { $gte: startOfMonth, $lte: endOfMonth },
-  };
-
-  if (targetStudentIds.length > 0) {
-    filter.student = targetStudentIds.length === 1 ? targetStudentIds[0] : { $in: targetStudentIds };
-  }
-
-  const records = await Attendance.find(filter);
-
-  const summary = {
-    present: 0,
-    absent: 0,
-    late: 0,
-  };
-
-  records.forEach((rec) => {
-    if (summary[rec.status] !== undefined) {
-      summary[rec.status] += 1;
-    }
-  });
-
-  return {
-    summary,
-    dateRange: {
-      startDate: startOfMonth.toISOString().split('T')[0],
-      endDate: endOfMonth.toISOString().split('T')[0],
-    },
-  };
-};
-
 module.exports = {
   markAttendance,
+  bulkMarkAttendance,
+  updateAttendance,
+  deleteAttendance,
+  getStudentAttendance,
+  getClassAttendance,
+  getTodayAttendance,
+  getAttendanceStats,
   getAttendanceHistory,
-  getWeeklySummary,
-  getMonthlySummary,
 };
