@@ -36,10 +36,10 @@ const generateReport = async (req, res) => {
 
     // 5. Generate report with AI
     const report = await generateStudentReport(studentData, period);
-
+ console.log(student.parent.email)
       // 6. Send email
     await sendReportEmail(
-      student.parent.email,
+      req.user.email,
       student.name,
       period,
       report

@@ -549,32 +549,15 @@ const sendReportEmail = async (email, studentName, period, reportData) => {
             '<li>No recommendations available.</li>'
           }
         </ul>
-
-        <div class="divider"></div>
-
-        <!-- Overall Status -->
-        <div style="text-align: center;">
-          <p style="margin-bottom: 8px; color: #64748b; font-size: 14px;">Overall Status</p>
-          <span class="status-badge ${reportData.overallStatus?.toLowerCase().replace(' ', '-') || 'average'}">
-            ${reportData.overallStatus || 'Average'}
-          </span>
-        </div>
-
+    
         <!-- Note -->
         <div class="note">
           💡 <strong>Tip:</strong> This report is AI-generated based on the student's grades and attendance data.
           For more details, please contact your child's teacher.
         </div>
 
-        <div style="text-align: center;">
-          <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard" class="btn">
-            View Full Dashboard
-          </a>
-        </div>
-
         <div class="footer">
           <p>© ${new Date().getFullYear()} School Connect — All rights reserved.</p>
-          <p>This is an automated report. Please do not reply to this email.</p>
         </div>
       </div>
     </body>
