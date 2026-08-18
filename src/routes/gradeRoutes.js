@@ -28,19 +28,19 @@ router.route('/')
 // Student Specific Routes
 router.get(
   '/student/:studentId',
-  authorize('admin', 'teacher', 'parent', 'student'),
+  authorize('admin', 'teacher', 'parent'),
   validateStudentIdParam,
   getStudentGrades
 );
 router.get(
   '/student/:studentId/averages',
-  authorize('admin', 'teacher', 'parent', 'student'),
+  authorize('admin', 'teacher', 'parent'),
   validateStudentIdParam,
   getSubjectAverages
 );
 router.get(
   '/student/:studentId/progress',
-  authorize('admin', 'teacher', 'parent', 'student'),
+  authorize('admin', 'teacher', 'parent'),
   validateStudentIdParam,
   getProgressTracking
 );
