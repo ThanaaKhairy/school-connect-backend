@@ -31,8 +31,7 @@ const createGradeSchema = z.object({
 
   maxScore: z
     .number({ required_error: 'Max score is required' })
-    .min(1, { message: 'Max score must be at least 1' })
-    .max(100, { message: 'Max score cannot exceed 100' }),
+    .min(1, { message: 'Max score must be at least 1' }),
 
   term: z
     .enum(['first', 'second', 'final'], {
@@ -62,17 +61,31 @@ const studentIdParamSchema = z.object({
     .optional(),
 });
 
-// 3. Reusable Validation Middleware Wrapper
+// 3.  Reusable Validation Middleware Wrapper (Fixed)
 const validate = (schema, source = 'body') => (req, res, next) => {
-  const result = schema.safeParse(req[source]);
+  try {
+    const result = schema.safeParse(req[source]);
 
-  if (!result.success) {
-    const firstErrorMessage = result.error.errors[0].message;
-    return sendError(res, firstErrorMessage, 400);
+    if (!result.success) {
+      const issues = result.error?.issues || [];
+
+      const errorMessage = issues.length > 0
+        ? issues[0].message
+        : 'Validation failed';
+
+      const errors = issues.map((issue) => ({
+        field: issue.path.join('.'),
+        message: issue.message,
+      }));
+
+      return sendError(res, errorMessage, 400, errors);
+    }
+
+    req[source] = result.data;
+    next();
+  } catch (error) {
+    return sendError(res, error.message || 'Validation error', 400);
   }
-
-  req[source] = result.data;
-  next();
 };
 
 module.exports = {

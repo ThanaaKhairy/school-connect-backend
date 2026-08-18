@@ -35,9 +35,8 @@ const gradeSchema = new mongoose.Schema({
   },
   maxScore: {
     type: Number,
-    required: true,
     min: 1,
-    max: 100
+    default : 100
   },
   
   date: {
