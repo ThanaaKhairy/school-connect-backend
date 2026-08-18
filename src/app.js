@@ -16,6 +16,7 @@ const attendanceRoutes = require('./routes/attendanceRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 
 const app = express();
@@ -62,6 +63,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/announcement', announcementRoutes);
 app.use('/api/notification', notificationRoutes);
+app.use('/api/report', reportRoutes);
 
 //Error Handling
 app.use(notFound);
