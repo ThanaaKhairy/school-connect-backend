@@ -15,7 +15,7 @@ const attendanceRoutes = require('./routes/attendanceRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-const gradeRoutes = require('./routes/gradeRoutes'); // <--- Added Grade Routes
+const gradeRoutes = require('./routes/gradeRoutes'); 
 
 const app = express();
 
