@@ -125,7 +125,7 @@ GEMINI_API_KEY=your_google_gemini_api_key
 
 > ⚠️ Never commit your real `.env` file to version control. Keep only `.env.example` (with placeholder values) in the repository.
 
----
+
 ---
 
 ## 📖 API Documentation
