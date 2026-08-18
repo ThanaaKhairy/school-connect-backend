@@ -100,8 +100,6 @@ JWT_EXPIRES_IN=7d
 # App
 NODE_ENV=development
 
-PROJECT_URL=http://localhost:5000
-
 # Admin data
 ADMIN_EMAIL=admin@school.com
 EMAIL_PASSWORD=your_email_app_password
@@ -120,7 +118,6 @@ GEMINI_API_KEY=your_google_gemini_api_key
 | `JWT_SECRET` | ✅ | Secret key used to sign and verify JWT tokens — use a long, random string |
 | `JWT_EXPIRES_IN` | ✅ | JWT token lifetime (e.g. `7d`, `1h`, `30m`) |
 | `NODE_ENV` | ✅ | Environment mode: `development`, `production`, or `test` |
-| `PROJECT_URL` | ✅ | Base URL of the deployed/running API (used in emails/links) |
 | `ADMIN_EMAIL` | ✅ | Email address used as the sender for system emails and as the default Admin account email |
 | `EMAIL_PASSWORD` | ✅ | App password for `ADMIN_EMAIL`, used by Nodemailer to send OTPs, credentials, and reports |
 | `ADMIN_PASSWORD` | ✅ | Password assigned to the default seeded Admin account |
@@ -129,7 +126,6 @@ GEMINI_API_KEY=your_google_gemini_api_key
 > ⚠️ Never commit your real `.env` file to version control. Keep only `.env.example` (with placeholder values) in the repository.
 
 ---
-
 ---
 
 ## 📖 API Documentation
