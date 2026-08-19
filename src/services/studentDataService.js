@@ -1,6 +1,6 @@
 // services/studentDataService.js
 const Student = require('../models/Student');
-const Grade = require('../models/Grade');
+const Grade = require('../models/grade');
 const Attendance = require('../models/Attendance');
 
 async function getStudentReportData(studentId, startDate, endDate) {
