@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const Grade = require('../models/Grade');
+const Grade = require('../models/grade');
 const Student = require('../models/Student');
 const Notification = require('../models/Notification');
 const Class = require('../models/Class');
