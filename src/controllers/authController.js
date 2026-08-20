@@ -1,6 +1,4 @@
-// ============================================================
-// FILE 8: controllers/authController.js
-// ============================================================
+
 const { generateToken } = require('../utils/jwt');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 const authService = require('../services/authService');
