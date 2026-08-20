@@ -18,7 +18,6 @@ const registerUserSchema = z.object({
   role: z.enum(['admin', 'teacher', 'parent']),
   phone: z.string()
     .regex(/^01[0125][0-9]{8}$/, 'Phone number must be a valid Egyptian number (e.g., 01012345678)')
-    .optional()
 });
 
 const updateUserSchema = z.object({

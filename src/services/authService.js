@@ -1,6 +1,4 @@
-// ============================================================
-// FILE 6: services/authService.js
-// ============================================================
+
 const User = require('../models/User');
 const generateVerificationCode = require('../utils/generateCode');
 const { sendPasswordResetEmail, sendPasswordChangedEmail } = require('./emailService');

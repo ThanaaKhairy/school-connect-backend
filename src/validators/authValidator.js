@@ -1,6 +1,3 @@
-// ============================================================
-// FILE 7: validators/authValidator.js
-// ============================================================
 const { z } = require('zod');
 
 const loginSchema = z.object({
