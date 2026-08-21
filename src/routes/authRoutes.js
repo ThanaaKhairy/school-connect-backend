@@ -9,6 +9,13 @@ const {
   resetPassword
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
+const {
+  loginLimiter,
+  forgotPasswordLimiter,
+  verifyResetCodeLimiter,
+  resetPasswordLimiter,
+  changePasswordLimiter,
+} = require('../middleware/rateLimiters');
 
 // ==================== PUBLIC ROUTES ====================
 
@@ -16,9 +23,9 @@ const { protect } = require('../middleware/authMiddleware');
 router.post('/login', login);
 
 // Forgot password flow (with OTP)
-router.post('/forgot-password', forgotPassword);
-router.post('/verify-reset-code', verifyResetCode);
-router.post('/reset-password', resetPassword);
+router.post('/forgot-password', forgotPasswordLimiter, forgotPassword);
+router.post('/verify-reset-code', verifyResetCodeLimiter, verifyResetCode);
+router.post('/reset-password', resetPasswordLimiter, resetPassword);
 
 // ==================== PROTECTED ROUTES ====================
 

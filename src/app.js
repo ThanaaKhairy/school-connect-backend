@@ -18,6 +18,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const gradeRoutes = require('./routes/gradeRoutes'); 
 const reportRoutes = require('./routes/reportRoutes'); 
 
+const rateLimit = require('express-rate-limit');
 const app = express();
 
 // Database connection
@@ -45,6 +46,16 @@ if (process.env.NODE_ENV === 'development') {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static('public'));
+
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: {
+    success: false,
+    error: 'Too many requests. Please try again after 15 minutes.'
+  }
+}));
+
 
 // Check APP
 app.get("/", (req, res) => {
