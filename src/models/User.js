@@ -52,6 +52,14 @@ const UserSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    resetAttempts: {
+      type: Number,
+      default: 0,
+    },
+    resetLockUntil: {
+      type: Date,
+      default: null,
+    },
     isActive: {
       type: Boolean,
       default: true,
